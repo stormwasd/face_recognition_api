@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  face-recognition-api:
+    build: .
+    container_name: face_recognition_api
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - WORKERS=4
+      - THREAD_POOL_WORKERS=8
+    volumes:
+      - ./models:/root/.insightface/models  # 缓存模型文件
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 可选：Redis缓存（用于提高性能）
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: face_recognition_redis
+  #   ports:
+  #     - "6379:6379"
+  #   restart: unless-stopped
+  #   command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # 可选：Nginx负载均衡（用于高可用）
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: face_recognition_nginx
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - face-recognition-api
+  #   restart: unless-stopped
+
