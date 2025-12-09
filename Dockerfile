@@ -4,6 +4,7 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # 设置环境变量（禁用代理，避免构建时连接本地代理失败）
+# 设置允许栈执行（解决 onnxruntime 在容器环境中的可执行栈问题）
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -13,7 +14,8 @@ ENV PYTHONUNBUFFERED=1 \
     HTTP_PROXY="" \
     HTTPS_PROXY="" \
     no_proxy="*" \
-    NO_PROXY="*"
+    NO_PROXY="*" \
+    ALLOW_STACK_EXEC=1
 
 # 配置 apt（彻底禁用代理，处理代理和源问题）
 # 清除所有可能的代理配置，并明确设置空代理
@@ -55,11 +57,11 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 修复 onnxruntime 共享库的可执行栈问题（容器环境常见问题）
+# 清理编译工具以减小镜像大小（保留运行时依赖）
+# 注意：Debian 13 (trixie) 中没有 execstack 包
+# onnxruntime 的可执行栈问题可以通过运行时环境变量解决
+# 如果遇到该问题，在 docker run 时添加：-e ALLOW_STACK_EXEC=1
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends execstack && \
-    find /usr/local/lib/python3.10/site-packages/onnxruntime -name "*.so" -exec execstack -c {} \; 2>/dev/null || true && \
-    apt-get purge -y --auto-remove execstack && \
     apt-get purge -y --auto-remove \
     build-essential \
     g++ \
@@ -69,6 +71,10 @@ RUN apt-get update && \
 
 # 复制应用代码
 COPY . .
+
+# 复制并设置启动脚本权限
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 创建模型缓存目录
 RUN mkdir -p /root/.insightface/models
@@ -80,6 +86,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# 启动命令
-CMD ["python", "main.py"]
+# 使用启动脚本（处理 onnxruntime 可执行栈问题）
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
