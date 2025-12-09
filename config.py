@@ -7,7 +7,21 @@ try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
     from pydantic import field_validator
 except ImportError:
-    from pydantic import BaseSettings, validator as field_validator
+    # Pydantic < 2.0 的兼容处理
+    try:
+        from pydantic import BaseSettings, validator as field_validator
+        # 对于旧版本，创建一个兼容的 SettingsConfigDict
+        class SettingsConfigDict:
+            def __init__(self, **kwargs):
+                self.env_file = kwargs.get('env_file')
+                self.case_sensitive = kwargs.get('case_sensitive', True)
+                self.env_parse_none_str = kwargs.get('env_parse_none_str', 'None')
+                self.env_file_encoding = kwargs.get('env_file_encoding', 'utf-8')
+    except ImportError:
+        raise ImportError(
+            "需要安装 pydantic-settings 包。"
+            "对于 Pydantic 2.0+，请运行: pip install pydantic-settings"
+        )
 
 
 class Settings(BaseSettings):
@@ -60,13 +74,22 @@ class Settings(BaseSettings):
             return [int(x.strip()) for x in v.split(',')]
         return v
     
-    model_config = SettingsConfigDict(
-        env_file=None,  # 不依赖 .env 文件，所有配置在代码中定义
-        case_sensitive=True,
-        env_parse_none_str='None',
-        # 仍然支持环境变量覆盖（通过系统环境变量），但不强制需要 .env 文件
-        env_file_encoding='utf-8'
-    )
+    # 使用 try-except 来处理不同版本的 Pydantic
+    try:
+        # Pydantic 2.0+ 使用 model_config
+        model_config = SettingsConfigDict(
+            env_file=None,  # 不依赖 .env 文件，所有配置在代码中定义
+            case_sensitive=True,
+            env_parse_none_str='None',
+            # 仍然支持环境变量覆盖（通过系统环境变量），但不强制需要 .env 文件
+            env_file_encoding='utf-8'
+        )
+    except (NameError, AttributeError):
+        # Pydantic < 2.0 使用 class Config
+        class Config:
+            env_file = None
+            case_sensitive = True
+            env_file_encoding = 'utf-8'
 
 
 # 创建全局配置实例
