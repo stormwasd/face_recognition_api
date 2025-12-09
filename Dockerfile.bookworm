@@ -1,4 +1,8 @@
-FROM python:3.10-slim
+# 使用 Debian 12 (bookworm) 的替代 Dockerfile
+# 如果 python:3.10-slim (trixie) 遇到包安装问题，可以使用此文件
+# 使用方法：docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
+
+FROM python:3.10-slim-bookworm
 
 # 设置工作目录
 WORKDIR /app
@@ -10,23 +14,19 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # 配置 apt（处理代理和源问题）
-# 清除可能的代理配置，避免构建时连接本地代理失败
 RUN rm -f /etc/apt/apt.conf.d/*proxy* 2>/dev/null || true && \
     echo "Acquire::http::Pipeline-Depth 0;" > /etc/apt/apt.conf.d/99fix-pipeline && \
     echo "Acquire::http::No-Cache true;" >> /etc/apt/apt.conf.d/99fix-pipeline && \
     echo "Acquire::BrokenProxy true;" >> /etc/apt/apt.conf.d/99fix-pipeline
 
-# 安装系统依赖（兼容 Debian 13 trixie）
-# 如果遇到包找不到的问题，可以：
-# 1. 使用构建参数：docker build --build-arg BASE_IMAGE=python:3.10-slim-bookworm
-# 2. 或者修改第一行 FROM 为：FROM python:3.10-slim-bookworm
-RUN apt-get update --allow-releaseinfo-change && \
+# 安装系统依赖（Debian 12 bookworm）
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    libgl1 \
+    libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender1 \
+    libxrender-dev \
     libgomp1 \
     curl \
     ca-certificates \

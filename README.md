@@ -85,8 +85,11 @@ docker-compose down
 #### 直接使用 Docker 命令
 
 ```bash
-# 构建镜像
+# 构建镜像（如果遇到代理或包安装问题，参考故障排查部分）
 docker build -t face-recognition-api:latest .
+
+# 如果构建失败，可以尝试使用 Debian 12 版本：
+# docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
 
 # 运行容器
 docker run -d \
@@ -106,7 +109,9 @@ docker stop face_recognition_api
 docker rm face_recognition_api
 ```
 
-**注意**: 首次运行会自动下载模型文件（约500MB），请确保网络连接正常。
+**注意**: 
+- 首次运行会自动下载模型文件（约500MB），请确保网络连接正常
+- 如果遇到构建问题，请查看[故障排查](#-故障排查)部分
 
 ## 📚 API文档
 
@@ -462,20 +467,52 @@ ab -n 100 -c 10 -p post_data.json -T application/json http://localhost:8000/comp
 
 ### 常见问题
 
-1. **模型下载失败**
+1. **Docker 构建失败 - 代理连接问题**
+   
+   如果遇到 `Unable to connect to 127.0.0.1:7890` 错误：
+   
+   ```bash
+   # 方法1：清除 Docker 构建时的代理设置
+   docker build --network=host -t face-recognition-api:latest .
+   
+   # 方法2：使用 Debian 12 (bookworm) 基础镜像（更稳定）
+   docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
+   
+   # 方法3：如果系统设置了代理，配置 Docker 代理
+   # 创建或编辑 ~/.docker/config.json
+   {
+     "proxies": {
+       "default": {
+         "httpProxy": "http://your-proxy:port",
+         "httpsProxy": "http://your-proxy:port"
+       }
+     }
+   }
+   ```
+
+2. **Docker 构建失败 - 包找不到**
+   
+   如果遇到 `Unable to locate package` 错误：
+   
+   ```bash
+   # 使用 Debian 12 (bookworm) 版本，包更稳定
+   docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
+   ```
+
+3. **模型下载失败**
    - 首次运行时会自动下载模型，需要网络连接
    - 可以手动下载模型到 `~/.insightface/models/` 目录
 
-2. **内存不足**
+4. **内存不足**
    - 模型约占用 1-2GB 内存
    - 建议至少 4GB 可用内存
 
-3. **检测不到人脸**
+5. **检测不到人脸**
    - 确保图片清晰，人脸可见
    - 图片质量过低可能影响检测
    - 侧脸、遮挡严重可能检测失败
 
-4. **性能较慢**
+6. **性能较慢**
    - 考虑启用 GPU 加速
    - 增加线程池大小
    - 使用更小的模型
