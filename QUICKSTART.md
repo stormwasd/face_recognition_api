@@ -88,25 +88,40 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 ```bash
 # 准备两张测试图片：person1.jpg 和 person2.jpg
+# 将图片转换为base64后发送请求
 
-curl -X POST "http://localhost:8000/api/v1/compare_faces" \
-  -F "image1=@person1.jpg" \
-  -F "image2=@person2.jpg"
+IMAGE1=$(base64 -w 0 person1.jpg)
+IMAGE2=$(base64 -w 0 person2.jpg)
+
+curl -X POST "http://localhost:8000/compare_faces" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"image1\": \"$IMAGE1\",
+    \"image2\": \"$IMAGE2\"
+  }"
 ```
 
 ### 使用 Python
 
 ```python
 import requests
+import base64
 
-url = "http://localhost:8000/api/v1/compare_faces"
+# 读取图片并转换为base64
+with open('person1.jpg', 'rb') as f:
+    image1_base64 = base64.b64encode(f.read()).decode('utf-8')
 
-files = {
-    'image1': open('person1.jpg', 'rb'),
-    'image2': open('person2.jpg', 'rb')
-}
+with open('person2.jpg', 'rb') as f:
+    image2_base64 = base64.b64encode(f.read()).decode('utf-8')
 
-response = requests.post(url, files=files)
+# 发送请求
+response = requests.post(
+    'http://localhost:8000/compare_faces',
+    json={
+        'image1': image1_base64,
+        'image2': image2_base64
+    }
+)
 print(response.json())
 ```
 
@@ -168,11 +183,12 @@ A:
 
 ### Q: 如何修改端口？
 A: 
-- 编辑 `.env` 文件，修改 `PORT=8000` 为您需要的端口
+- 编辑 `config.py` 文件，修改 `PORT=8000` 为您需要的端口
+- 或设置环境变量：`export PORT=9000`
 - 或者在启动时指定：`uvicorn main:app --port 9000`
 
 ### Q: 支持 GPU 加速吗？
-A: 支持。安装 `onnxruntime-gpu` 并修改 `.env` 中的 `PROVIDER=CUDAExecutionProvider`
+A: 支持。安装 `onnxruntime-gpu` 并修改 `config.py` 中的 `PROVIDER=CUDAExecutionProvider` 或设置环境变量
 
 ## 下一步
 

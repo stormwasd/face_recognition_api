@@ -4,11 +4,12 @@
 """
 import asyncio
 import time
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -97,6 +98,12 @@ request_duration = SimpleMetric('face_recognition_request_duration_seconds')
 comparison_result_counter = SimpleMetric('face_comparison_results_total')
 
 
+class CompareFacesRequest(BaseModel):
+    """人脸对比请求模型"""
+    image1: str = Field(..., description="第一张图片的base64编码字符串")
+    image2: str = Field(..., description="第二张图片的base64编码字符串")
+
+
 class ComparisonResult(BaseModel):
     """人脸对比结果模型"""
     is_same_person: bool = Field(..., description="是否为同一个人")
@@ -120,40 +127,69 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 
-async def validate_image_file(file: UploadFile) -> bytes:
+def validate_base64_image(base64_str: str) -> bytes:
     """
-    验证并读取图片文件
+    验证并解码base64图片
     
     Args:
-        file: 上传的文件
+        base64_str: base64编码的图片字符串
         
     Returns:
-        文件字节数据
+        图片字节数据
         
     Raises:
-        HTTPException: 文件验证失败
+        HTTPException: base64验证失败
     """
-    # 验证文件类型
-    if file.content_type not in settings.ALLOWED_CONTENT_TYPES:
+    if not base64_str:
+        raise HTTPException(status_code=400, detail="base64图片数据不能为空")
+    
+    # 移除可能的前缀（如 data:image/jpeg;base64,）
+    if ',' in base64_str:
+        base64_str = base64_str.split(',')[-1]
+    
+    try:
+        # 解码base64
+        image_bytes = base64.b64decode(base64_str)
+    except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件格式。支持的格式: {', '.join(settings.ALLOWED_CONTENT_TYPES)}"
+            detail=f"base64解码失败: {str(e)}"
         )
-    
-    # 读取文件内容
-    file_bytes = await file.read()
     
     # 验证文件大小
-    if len(file_bytes) > settings.MAX_FILE_SIZE:
+    if len(image_bytes) > settings.MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"文件过大。最大支持 {settings.MAX_FILE_SIZE // (1024*1024)}MB"
+            detail=f"图片过大。最大支持 {settings.MAX_FILE_SIZE // (1024*1024)}MB"
         )
     
-    if len(file_bytes) == 0:
-        raise HTTPException(status_code=400, detail="文件内容为空")
+    if len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="图片数据为空")
     
-    return file_bytes
+    # 验证是否为有效的图片格式（通过文件头判断）
+    valid_signatures = [
+        b'\xff\xd8\xff',  # JPEG
+        b'\x89\x50\x4e\x47',  # PNG
+        b'RIFF',  # WEBP (需要进一步检查)
+    ]
+    
+    is_valid = False
+    for sig in valid_signatures:
+        if image_bytes.startswith(sig):
+            is_valid = True
+            break
+    
+    # WEBP 特殊检查
+    if not is_valid and image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        is_valid = True
+    
+    if not is_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的图片格式。支持的格式: {', '.join(settings.ALLOWED_EXTENSIONS)}"
+        )
+    
+    return image_bytes
 
 
 async def process_face_comparison_async(
@@ -203,13 +239,14 @@ async def process_face_comparison_async(
     )
 
 
-@app.post("/api/v1/compare_faces", response_model=ComparisonResult, tags=["人脸识别"])
-async def compare_faces(
-    image1: UploadFile = File(..., description="第一张人脸图片"),
-    image2: UploadFile = File(..., description="第二张人脸图片")
-):
+@app.post("/compare_faces", response_model=ComparisonResult, tags=["人脸识别"])
+async def compare_faces(request: CompareFacesRequest):
     """
     比较两张人脸图片是否为同一个人
+    
+    **请求参数**:
+    - `image1`: 第一张图片的base64编码字符串（支持带或不带data URI前缀）
+    - `image2`: 第二张图片的base64编码字符串（支持带或不带data URI前缀）
     
     **支持的图片格式**: JPG, JPEG, PNG, WEBP
     
@@ -226,9 +263,12 @@ async def compare_faces(
     
     **示例**:
     ```bash
-    curl -X POST "http://localhost:8000/api/v1/compare_faces" \\
-      -F "image1=@person1.jpg" \\
-      -F "image2=@person2.jpg"
+    curl -X POST "http://localhost:8000/compare_faces" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "image1": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+        "image2": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+      }'
     ```
     """
     try:
@@ -236,9 +276,9 @@ async def compare_faces(
         request_count.labels(endpoint='compare_faces', status='started').inc()
         
         with request_duration.labels(endpoint='compare_faces').time():
-            # 验证并读取图片文件
-            image1_bytes = await validate_image_file(image1)
-            image2_bytes = await validate_image_file(image2)
+            # 验证并解码base64图片
+            image1_bytes = validate_base64_image(request.image1)
+            image2_bytes = validate_base64_image(request.image2)
             
             # 处理人脸对比
             result = await process_face_comparison_async(image1_bytes, image2_bytes)
@@ -264,7 +304,8 @@ async def root():
         "version": settings.APP_VERSION,
         "status": "running",
         "endpoints": {
-            "比较人脸": "/api/v1/compare_faces",
+            "比较人脸": "/compare_faces",
+            "服务信息": "/info",
             "API文档": "/docs",
             "健康检查": "/health",
             "监控指标": "/metrics"
@@ -309,7 +350,7 @@ face_comparison_results_total{{result="same_person"}} {comparison_result_counter
     return Response(content=default_metrics + custom_metrics, media_type="text/plain")
 
 
-@app.get("/api/v1/info", tags=["系统"])
+@app.get("/info", tags=["系统"])
 async def get_info():
     """获取服务配置信息"""
     return {

@@ -61,9 +61,11 @@ class Settings(BaseSettings):
         return v
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,  # 不依赖 .env 文件，所有配置在代码中定义
         case_sensitive=True,
-        env_parse_none_str='None'
+        env_parse_none_str='None',
+        # 仍然支持环境变量覆盖（通过系统环境变量），但不强制需要 .env 文件
+        env_file_encoding='utf-8'
     )
 
 

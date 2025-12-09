@@ -55,12 +55,9 @@ source venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
-#### 2. 配置环境变量（可选）
+#### 2. 配置（可选）
 
-```bash
-cp .env.example .env
-# 根据需要修改 .env 文件
-```
+所有配置都在 `config.py` 文件中，可以直接修改。如果需要通过环境变量覆盖配置，可以在系统环境变量中设置（不需要创建 .env 文件）。
 
 #### 3. 启动服务
 
@@ -72,6 +69,8 @@ python main.py
 
 ### 方式二：Docker运行
 
+#### 使用 Docker Compose（推荐）
+
 ```bash
 # 构建并启动
 docker-compose up -d
@@ -82,6 +81,32 @@ docker-compose logs -f
 # 停止服务
 docker-compose down
 ```
+
+#### 直接使用 Docker 命令
+
+```bash
+# 构建镜像
+docker build -t face-recognition-api:latest .
+
+# 运行容器
+docker run -d \
+  --name face_recognition_api \
+  -p 8000:8000 \
+  -v $(pwd)/models:/root/.insightface/models \
+  --restart unless-stopped \
+  face-recognition-api:latest
+
+# 查看日志
+docker logs -f face_recognition_api
+
+# 停止容器
+docker stop face_recognition_api
+
+# 删除容器
+docker rm face_recognition_api
+```
+
+**注意**: 首次运行会自动下载模型文件（约500MB），请确保网络连接正常。
 
 ## 📚 API文档
 
@@ -96,17 +121,17 @@ docker-compose down
 
 #### 1. 人脸对比
 
-**接口**: `POST /api/v1/compare_faces`
+**接口**: `POST /compare_faces`
 
 **描述**: 比较两张人脸图片是否为同一个人
 
 **请求参数**:
-- `image1`: 第一张图片文件（multipart/form-data）
-- `image2`: 第二张图片文件（multipart/form-data）
+- `image1`: 第一张图片的base64编码字符串（JSON格式）
+- `image2`: 第二张图片的base64编码字符串（JSON格式）
 
 **支持格式**: JPG, JPEG, PNG, WEBP
 
-**文件大小限制**: 最大 10MB
+**文件大小限制**: 最大 10MB（base64编码前）
 
 **响应示例**:
 
@@ -149,7 +174,7 @@ docker-compose down
 
 #### 3. 服务信息
 
-**接口**: `GET /api/v1/info`
+**接口**: `GET /info`
 
 **响应示例**:
 
@@ -175,26 +200,41 @@ docker-compose down
 #### cURL
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/compare_faces" \
-  -F "image1=@person1.jpg" \
-  -F "image2=@person2.jpg"
+# 将图片转换为base64（示例）
+IMAGE1_BASE64=$(base64 -w 0 person1.jpg)
+IMAGE2_BASE64=$(base64 -w 0 person2.jpg)
+
+curl -X POST "http://localhost:8000/compare_faces" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"image1\": \"$IMAGE1_BASE64\",
+    \"image2\": \"$IMAGE2_BASE64\"
+  }"
 ```
 
 #### Python
 
 ```python
 import requests
+import base64
 
-url = "http://localhost:8000/api/v1/compare_faces"
+# 读取图片并转换为base64
+with open('person1.jpg', 'rb') as f:
+    image1_base64 = base64.b64encode(f.read()).decode('utf-8')
 
-files = {
-    'image1': open('person1.jpg', 'rb'),
-    'image2': open('person2.jpg', 'rb')
-}
+with open('person2.jpg', 'rb') as f:
+    image2_base64 = base64.b64encode(f.read()).decode('utf-8')
 
-response = requests.post(url, files=files)
+# 发送请求
+response = requests.post(
+    'http://localhost:8000/compare_faces',
+    json={
+        'image1': image1_base64,
+        'image2': image2_base64
+    }
+)
+
 result = response.json()
-
 print(f"是否同一人: {result['is_same_person']}")
 print(f"相似度: {result['similarity']:.2%}")
 ```
@@ -202,30 +242,31 @@ print(f"相似度: {result['similarity']:.2%}")
 #### JavaScript (Node.js)
 
 ```javascript
-const FormData = require('form-data');
 const fs = require('fs');
 const axios = require('axios');
 
-const form = new FormData();
-form.append('image1', fs.createReadStream('person1.jpg'));
-form.append('image2', fs.createReadStream('person2.jpg'));
+// 读取图片并转换为base64
+const image1 = fs.readFileSync('person1.jpg').toString('base64');
+const image2 = fs.readFileSync('person2.jpg').toString('base64');
 
-axios.post('http://localhost:8000/api/v1/compare_faces', form, {
-  headers: form.getHeaders()
+// 发送请求
+axios.post('http://localhost:8000/compare_faces', {
+  image1: image1,
+  image2: image2
 })
 .then(response => {
   console.log('结果:', response.data);
 })
 .catch(error => {
-  console.error('错误:', error);
+  console.error('错误:', error.response.data);
 });
 ```
 
 ## ⚙️ 配置说明
 
-### 环境变量
+### 配置说明
 
-主要配置项（在 `.env` 文件中设置）：
+主要配置项（在 `config.py` 文件中设置，也可通过环境变量覆盖）：
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
@@ -255,9 +296,13 @@ pip uninstall onnxruntime
 pip install onnxruntime-gpu
 ```
 
-2. 修改 `.env` 配置：
-```
-PROVIDER=CUDAExecutionProvider
+2. 修改 `config.py` 配置或设置环境变量：
+```python
+# 在 config.py 中修改
+PROVIDER: str = "CUDAExecutionProvider"
+
+# 或通过环境变量
+export PROVIDER=CUDAExecutionProvider
 ```
 
 ## 🚄 性能优化
@@ -377,9 +422,12 @@ curl http://localhost:8000/health
 
 2. **人脸对比**:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/compare_faces" \
-  -F "image1=@test_image1.jpg" \
-  -F "image2=@test_image2.jpg"
+# 将图片转换为base64后发送请求
+IMAGE1=$(base64 -w 0 test_image1.jpg)
+IMAGE2=$(base64 -w 0 test_image2.jpg)
+curl -X POST "http://localhost:8000/compare_faces" \
+  -H "Content-Type: application/json" \
+  -d "{\"image1\": \"$IMAGE1\", \"image2\": \"$IMAGE2\"}"
 ```
 
 ### 性能测试
@@ -391,8 +439,9 @@ curl -X POST "http://localhost:8000/api/v1/compare_faces" \
 apt-get install apache2-utils  # Ubuntu/Debian
 yum install httpd-tools         # CentOS/RHEL
 
-# 运行测试
-ab -n 100 -c 10 -p post_data.txt -T multipart/form-data http://localhost:8000/api/v1/compare_faces
+# 准备JSON数据文件（包含base64编码的图片）
+# 然后运行测试
+ab -n 100 -c 10 -p post_data.json -T application/json http://localhost:8000/compare_faces
 ```
 
 ## 📊 监控
