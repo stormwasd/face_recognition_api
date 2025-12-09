@@ -85,11 +85,17 @@ docker-compose down
 #### 直接使用 Docker 命令
 
 ```bash
-# 构建镜像（如果遇到代理或包安装问题，参考故障排查部分）
-docker build -t face-recognition-api:latest .
+# 构建镜像
+# 如果遇到代理连接问题（Unable to connect to 127.0.0.1:7890），请使用以下方法之一：
 
-# 如果构建失败，可以尝试使用 Debian 12 版本：
-# docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
+# 方法1：使用主机网络（推荐，绕过代理）
+docker build --network=host -t face-recognition-api:latest .
+
+# 方法2：使用 Debian 12 版本（最稳定）
+docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
+
+# 方法3：标准构建（如果系统没有代理设置）
+docker build -t face-recognition-api:latest .
 
 # 运行容器
 docker run -d \
