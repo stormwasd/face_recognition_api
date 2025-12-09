@@ -38,6 +38,11 @@ RUN apt-get update && \
     libgomp1 \
     curl \
     ca-certificates \
+    build-essential \
+    g++ \
+    gcc \
+    make \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件
@@ -49,6 +54,15 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 清理编译工具以减小镜像大小（保留运行时依赖）
+RUN apt-get update && \
+    apt-get purge -y --auto-remove \
+    build-essential \
+    g++ \
+    gcc \
+    make \
+    && rm -rf /var/lib/apt/lists/*
 
 # 复制应用代码
 COPY . .
