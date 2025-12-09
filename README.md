@@ -84,18 +84,24 @@ docker-compose down
 
 #### 直接使用 Docker 命令
 
+**推荐方案：使用 Dockerfile.bookworm（Debian 12，更稳定）**
+
 ```bash
-# 构建镜像
-# 如果遇到代理连接问题（Unable to connect to 127.0.0.1:7890），请使用以下方法之一：
+# 推荐：使用 Debian 12 版本 + 主机网络（生产环境推荐）
+docker build --network=host -f Dockerfile.bookworm -t face-recognition-api:latest .
+```
 
-# 方法1：使用主机网络（推荐，绕过代理）
+**备选方案：使用主 Dockerfile（Debian 13）**
+
+```bash
+# 备选：使用主 Dockerfile + 主机网络
 docker build --network=host -t face-recognition-api:latest .
+```
 
-# 方法2：使用 Debian 12 版本（最稳定）
-docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
-
-# 方法3：标准构建（如果系统没有代理设置）
-docker build -t face-recognition-api:latest .
+**注意：**
+- 如果遇到代理连接问题（`Unable to connect to 127.0.0.1:7890`），**必须使用 `--network=host`**
+- 推荐使用 `Dockerfile.bookworm`，因为 Debian 12 更稳定，适合生产环境
+- 两个 Dockerfile 功能相同，都支持所有功能
 
 # 运行容器
 docker run -d \
