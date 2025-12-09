@@ -23,10 +23,11 @@ docker build --network=host -t face-recognition-api:version_1209_2025 .
 ### 方案2：使用 Debian 12 版本（最稳定）
 
 ```bash
-docker build -f Dockerfile.bookworm -t face-recognition-api:version_1209_2025 .
+# 使用 --network=host 绕过代理问题
+docker build --network=host -f Dockerfile.bookworm -t face-recognition-api:version_1209_2025 .
 ```
 
-`Dockerfile.bookworm` 使用 Debian 12 (bookworm)，包更稳定，代理问题更少。
+`Dockerfile.bookworm` 使用 Debian 12 (bookworm)，包更稳定。**注意：如果遇到代理问题，也需要使用 `--network=host`**。
 
 ### 方案3：清除系统代理环境变量
 
@@ -77,16 +78,18 @@ docker build -t face-recognition-api:version_1209_2025 .
 **最简单可靠的方法：**
 
 ```bash
-# 使用 Debian 12 版本，最稳定
-docker build -f Dockerfile.bookworm -t face-recognition-api:version_1209_2025 .
+# 方法1：使用 Debian 12 版本 + 主机网络（最稳定，推荐）
+docker build --network=host -f Dockerfile.bookworm -t face-recognition-api:version_1209_2025 .
 ```
 
 或者
 
 ```bash
-# 使用主机网络，绕过代理
-docker build --network=host -t face-recognition-api:version_1209_2025 .
+# 方法2：使用主 Dockerfile + 主机网络
+docker build --network=host -t face-recognition-api:version_1209_2059 .
 ```
+
+**重要提示**：如果遇到代理连接问题（`Unable to connect to 127.0.0.1:7890`），**必须使用 `--network=host` 参数**，无论是使用主 Dockerfile 还是 Dockerfile.bookworm。
 
 ## 验证构建
 

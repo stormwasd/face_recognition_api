@@ -1,6 +1,7 @@
 # 使用 Debian 12 (bookworm) 的替代 Dockerfile
 # 如果 python:3.10-slim (trixie) 遇到包安装问题，可以使用此文件
-# 使用方法：docker build -f Dockerfile.bookworm -t face-recognition-api:latest .
+# 使用方法（如果遇到代理问题，必须使用 --network=host）：
+# docker build --network=host -f Dockerfile.bookworm -t face-recognition-api:latest .
 
 FROM python:3.10-slim-bookworm
 
@@ -8,6 +9,7 @@ FROM python:3.10-slim-bookworm
 WORKDIR /app
 
 # 设置环境变量（禁用代理，避免构建时连接本地代理失败）
+# 设置允许栈执行（解决 onnxruntime 在容器环境中的可执行栈问题）
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -17,7 +19,8 @@ ENV PYTHONUNBUFFERED=1 \
     HTTP_PROXY="" \
     HTTPS_PROXY="" \
     no_proxy="*" \
-    NO_PROXY="*"
+    NO_PROXY="*" \
+    ALLOW_STACK_EXEC=1
 
 # 配置 apt（彻底禁用代理，处理代理和源问题）
 RUN rm -f /etc/apt/apt.conf.d/*proxy* 2>/dev/null || true && \
@@ -70,6 +73,10 @@ RUN apt-get update && \
 # 复制应用代码
 COPY . .
 
+# 复制并设置启动脚本权限
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # 创建模型缓存目录
 RUN mkdir -p /root/.insightface/models
 
@@ -80,6 +87,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# 启动命令
-CMD ["python", "main.py"]
+# 使用启动脚本（处理 onnxruntime 可执行栈问题）
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
