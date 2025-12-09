@@ -55,8 +55,11 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 清理编译工具以减小镜像大小（保留运行时依赖）
+# 修复 onnxruntime 共享库的可执行栈问题（容器环境常见问题）
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends execstack && \
+    find /usr/local/lib/python3.10/site-packages/onnxruntime -name "*.so" -exec execstack -c {} \; 2>/dev/null || true && \
+    apt-get purge -y --auto-remove execstack && \
     apt-get purge -y --auto-remove \
     build-essential \
     g++ \
