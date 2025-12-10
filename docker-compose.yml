@@ -6,13 +6,9 @@ services:
     container_name: face_recognition_api
     ports:
       - "8000:8000"
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8000
-      - WORKERS=4
-      - THREAD_POOL_WORKERS=8
     volumes:
       - ./models:/root/.insightface/models  # 缓存模型文件
+      - ./config.py:/app/config.py  # 挂载配置文件
     restart: unless-stopped
     deploy:
       resources:
