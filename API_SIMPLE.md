@@ -27,7 +27,36 @@
 
 **文件大小限制**: 最大 10MB（base64编码前）
 
-### 响应字段
+### 响应格式
+
+所有接口统一返回以下结构：
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| code | integer | 响应码，HTTP 200时返回0，其他情况使用HTTP状态码 |
+| data | object | 响应数据，具体内容见各接口说明 |
+| msg | string | 响应消息 |
+
+### 响应示例
+
+**成功响应 (200 OK)**
+```json
+{
+  "code": 0,
+  "data": {
+    "is_same_person": true,
+    "similarity": 0.8523,
+    "confidence": "高",
+    "face1_detected": true,
+    "face2_detected": true,
+    "message": "两张图片是同一个人（相似度: 85.23%）",
+    "processing_time": 245.67
+  },
+  "msg": "人脸对比成功"
+}
+```
+
+**data字段说明**：
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
@@ -39,48 +68,41 @@
 | message | string | 详细的结果说明信息 |
 | processing_time | float | 服务器处理时间，单位毫秒 |
 
-### 响应示例
-
-**成功响应 (200 OK)**
-```json
-{
-  "is_same_person": true,
-  "similarity": 0.8523,
-  "confidence": "高",
-  "face1_detected": true,
-  "face2_detected": true,
-  "message": "两张图片是同一个人（相似度: 85.23%）",
-  "processing_time": 245.67
-}
-```
-
 ### 错误响应
 
 **400 Bad Request** - 请求参数错误
 ```json
 {
-  "detail": "base64解码失败: Invalid base64-encoded string"
+  "code": 400,
+  "data": {},
+  "msg": "base64解码失败: Invalid base64-encoded string"
 }
 ```
 
 **400 Bad Request** - 图片格式不支持
 ```json
 {
-  "detail": "不支持的图片格式。支持的格式: .jpg, .jpeg, .png, .webp"
+  "code": 400,
+  "data": {},
+  "msg": "不支持的图片格式，支持的格式: .jpg, .jpeg, .png, .webp"
 }
 ```
 
 **400 Bad Request** - 图片过大
 ```json
 {
-  "detail": "图片过大。最大支持 10MB"
+  "code": 400,
+  "data": {},
+  "msg": "图片过大，最大支持 10MB"
 }
 ```
 
 **500 Internal Server Error** - 服务器内部错误
 ```json
 {
-  "detail": "服务器内部错误: [错误详情]"
+  "code": 500,
+  "data": {},
+  "msg": "服务器内部错误: [错误详情]"
 }
 ```
 
@@ -116,12 +138,16 @@
 
 ```json
 {
-  "model": "buffalo_l",
-  "detection_size": [640, 640],
-  "similarity_threshold": 0.65,
-  "max_file_size_mb": 10,
-  "supported_formats": [".jpg", ".jpeg", ".png", ".webp"],
-  "thread_pool_workers": 8
+  "code": 0,
+  "data": {
+    "model": "buffalo_l",
+    "detection_size": [640, 640],
+    "similarity_threshold": 0.65,
+    "max_file_size_mb": 10,
+    "supported_formats": [".jpg", ".jpeg", ".png", ".webp"],
+    "thread_pool_workers": 8
+  },
+  "msg": "获取服务配置信息成功"
 }
 ```
 
@@ -149,23 +175,30 @@
 
 ```json
 {
-  "status": "healthy",
-  "service": "人脸识别API",
-  "version": "1.0.0",
-  "model_loaded": true,
-  "model_name": "buffalo_l"
+  "code": 0,
+  "data": {
+    "status": "healthy",
+    "service": "人脸识别API",
+    "version": "1.0.0",
+    "model_loaded": true,
+    "model_name": "buffalo_l"
+  },
+  "msg": "服务健康检查通过"
 }
 ```
 
 ---
 
-## HTTP状态码说明
+## 响应码说明
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 | 请求成功 |
-| 400 | 请求参数错误（如base64格式错误、图片格式不支持、图片过大等） |
-| 500 | 服务器内部错误 |
+| HTTP状态码 | code字段 | 说明 |
+|-----------|----------|------|
+| 200 | 0 | 请求成功 |
+| 200 | 0 | 所有成功请求的code字段均为0 |
+| 400 | 400 | 请求参数错误（如base64格式错误、图片格式不支持、图片过大等） |
+| 500 | 500 | 服务器内部错误 |
+
+**注意**：当HTTP状态码为200时，响应体中的`code`字段为0；当HTTP状态码为其他值时，`code`字段与HTTP状态码保持一致。
 
 ---
 

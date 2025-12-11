@@ -6,12 +6,13 @@ import asyncio
 import time
 import base64
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Optional, Generic, TypeVar, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, generate_latest
@@ -71,6 +72,45 @@ app.add_middleware(
 # 添加GZIP压缩中间件
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# 全局异常处理器 - 统一错误响应格式
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """HTTP异常处理器"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "code": exc.status_code,
+            "data": {},
+            "msg": exc.detail
+        }
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """请求验证异常处理器"""
+    errors = exc.errors()
+    error_msg = "; ".join([f"{'.'.join(str(loc) for loc in err['loc'])}: {err['msg']}" for err in errors])
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={
+            "code": 400,
+            "data": {},
+            "msg": f"请求参数验证失败: {error_msg}"
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """通用异常处理器"""
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "code": 500,
+            "data": {},
+            "msg": f"服务器内部错误: {str(exc)}"
+        }
+    )
+
 # 简化的指标处理 - 使用占位符避免Prometheus冲突
 class SimpleMetric:
     def __init__(self, name):
@@ -96,6 +136,15 @@ class SimpleMetric:
 request_count = SimpleMetric('face_recognition_requests_total')
 request_duration = SimpleMetric('face_recognition_request_duration_seconds')
 comparison_result_counter = SimpleMetric('face_comparison_results_total')
+
+# 统一响应模型
+T = TypeVar('T')
+
+class ApiResponse(BaseModel, Generic[T]):
+    """统一API响应结构"""
+    code: int = Field(..., description="响应码，200时返回0，其他情况使用HTTP状态码")
+    data: T = Field(..., description="响应数据")
+    msg: str = Field(..., description="响应消息")
 
 
 class CompareFacesRequest(BaseModel):
@@ -160,7 +209,7 @@ def validate_base64_image(base64_str: str) -> bytes:
     if len(image_bytes) > settings.MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"图片过大。最大支持 {settings.MAX_FILE_SIZE // (1024*1024)}MB"
+            detail=f"图片过大，最大支持 {settings.MAX_FILE_SIZE // (1024*1024)}MB"
         )
     
     if len(image_bytes) == 0:
@@ -186,7 +235,7 @@ def validate_base64_image(base64_str: str) -> bytes:
     if not is_valid:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的图片格式。支持的格式: {', '.join(settings.ALLOWED_EXTENSIONS)}"
+            detail=f"不支持的图片格式，支持的格式: {', '.join(settings.ALLOWED_EXTENSIONS)}"
         )
     
     return image_bytes
@@ -239,7 +288,7 @@ async def process_face_comparison_async(
     )
 
 
-@app.post("/compare_faces", response_model=ComparisonResult, tags=["人脸识别"])
+@app.post("/compare_faces", response_model=ApiResponse[ComparisonResult], tags=["人脸识别"])
 async def compare_faces(request: CompareFacesRequest):
     """
     比较两张人脸图片是否为同一个人
@@ -253,13 +302,16 @@ async def compare_faces(request: CompareFacesRequest):
     **文件大小限制**: 最大10MB
     
     **返回信息**:
-    - `is_same_person`: 是否为同一个人
-    - `similarity`: 相似度分数（0-1之间，越接近1越相似）
-    - `confidence`: 置信度等级（高/中/低）
-    - `face1_detected`: 第一张图片是否检测到人脸
-    - `face2_detected`: 第二张图片是否检测到人脸
-    - `message`: 详细说明
-    - `processing_time`: 处理时间（毫秒）
+    - `code`: 响应码，成功时为0
+    - `data`: 包含对比结果数据
+      - `is_same_person`: 是否为同一个人
+      - `similarity`: 相似度分数（0-1之间，越接近1越相似）
+      - `confidence`: 置信度等级（高/中/低）
+      - `face1_detected`: 第一张图片是否检测到人脸
+      - `face2_detected`: 第二张图片是否检测到人脸
+      - `message`: 详细说明
+      - `processing_time`: 处理时间（毫秒）
+    - `msg`: 响应消息
     
     **示例**:
     ```bash
@@ -286,7 +338,11 @@ async def compare_faces(request: CompareFacesRequest):
             # 记录成功
             request_count.labels(endpoint='compare_faces', status='success').inc()
             
-            return result
+            return ApiResponse(
+                code=0,
+                data=result,
+                msg="人脸对比成功"
+            )
     
     except HTTPException:
         request_count.labels(endpoint='compare_faces', status='error').inc()
@@ -296,34 +352,42 @@ async def compare_faces(request: CompareFacesRequest):
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
 
-@app.get("/", tags=["系统"])
+@app.get("/", response_model=ApiResponse[dict], tags=["系统"])
 async def root():
     """API根路径 - 服务信息"""
-    return {
-        "service": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-        "endpoints": {
-            "比较人脸": "/compare_faces",
-            "服务信息": "/info",
-            "API文档": "/docs",
-            "健康检查": "/health",
-            "监控指标": "/metrics"
+    return ApiResponse(
+        code=0,
+        data={
+            "service": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "status": "running",
+            "endpoints": {
+                "比较人脸": "/compare_faces",
+                "服务信息": "/info",
+                "API文档": "/docs",
+                "健康检查": "/health",
+                "监控指标": "/metrics"
+            },
+            "documentation": "/docs"
         },
-        "documentation": "/docs"
-    }
+        msg="服务运行正常"
+    )
 
 
-@app.get("/health", tags=["系统"])
+@app.get("/health", response_model=ApiResponse[dict], tags=["系统"])
 async def health_check():
     """健康检查接口"""
-    return {
-        "status": "healthy",
-        "service": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "model_loaded": face_service._initialized,
-        "model_name": settings.MODEL_NAME
-    }
+    return ApiResponse(
+        code=0,
+        data={
+            "status": "healthy",
+            "service": settings.APP_NAME,
+            "version": settings.APP_VERSION,
+            "model_loaded": face_service._initialized,
+            "model_name": settings.MODEL_NAME
+        },
+        msg="服务健康检查通过"
+    )
 
 
 @app.get("/metrics", tags=["系统"])
@@ -350,17 +414,21 @@ face_comparison_results_total{{result="same_person"}} {comparison_result_counter
     return Response(content=default_metrics + custom_metrics, media_type="text/plain")
 
 
-@app.get("/info", tags=["系统"])
+@app.get("/info", response_model=ApiResponse[dict], tags=["系统"])
 async def get_info():
     """获取服务配置信息"""
-    return {
-        "model": settings.MODEL_NAME,
-        "detection_size": settings.DET_SIZE,
-        "similarity_threshold": settings.SIMILARITY_THRESHOLD,
-        "max_file_size_mb": settings.MAX_FILE_SIZE // (1024 * 1024),
-        "supported_formats": settings.ALLOWED_EXTENSIONS,
-        "thread_pool_workers": settings.THREAD_POOL_WORKERS
-    }
+    return ApiResponse(
+        code=0,
+        data={
+            "model": settings.MODEL_NAME,
+            "detection_size": settings.DET_SIZE,
+            "similarity_threshold": settings.SIMILARITY_THRESHOLD,
+            "max_file_size_mb": settings.MAX_FILE_SIZE // (1024 * 1024),
+            "supported_formats": settings.ALLOWED_EXTENSIONS,
+            "thread_pool_workers": settings.THREAD_POOL_WORKERS
+        },
+        msg="获取服务配置信息成功"
+    )
 
 
 if __name__ == "__main__":

@@ -155,24 +155,31 @@ docker rm face_recognition_api
 
 ```json
 {
-  "is_same_person": true,
-  "similarity": 0.8523,
-  "confidence": "高",
-  "face1_detected": true,
-  "face2_detected": true,
-  "message": "两张图片是同一个人（相似度: 85.23%）",
-  "processing_time": 245.67
+  "code": 0,
+  "data": {
+    "is_same_person": true,
+    "similarity": 0.8523,
+    "confidence": "高",
+    "face1_detected": true,
+    "face2_detected": true,
+    "message": "两张图片是同一个人（相似度: 85.23%）",
+    "processing_time": 245.67
+  },
+  "msg": "人脸对比成功"
 }
 ```
 
-**字段说明**:
-- `is_same_person`: 是否为同一个人（boolean）
-- `similarity`: 相似度分数，0-1之间（float）
-- `confidence`: 置信度等级：高/中/低（string）
-- `face1_detected`: 图片1是否检测到人脸（boolean）
-- `face2_detected`: 图片2是否检测到人脸（boolean）
-- `message`: 详细说明（string）
-- `processing_time`: 处理时间，单位毫秒（float）
+**响应格式说明**:
+- `code`: 响应码，成功时为0（integer）
+- `data`: 响应数据（object）
+  - `is_same_person`: 是否为同一个人（boolean）
+  - `similarity`: 相似度分数，0-1之间（float）
+  - `confidence`: 置信度等级：高/中/低（string）
+  - `face1_detected`: 图片1是否检测到人脸（boolean）
+  - `face2_detected`: 图片2是否检测到人脸（boolean）
+  - `message`: 详细说明（string）
+  - `processing_time`: 处理时间，单位毫秒（float）
+- `msg`: 响应消息（string）
 
 #### 2. 健康检查
 
@@ -182,11 +189,15 @@ docker rm face_recognition_api
 
 ```json
 {
-  "status": "healthy",
-  "service": "人脸识别API",
-  "version": "1.0.0",
-  "model_loaded": true,
-  "model_name": "buffalo_l"
+  "code": 0,
+  "data": {
+    "status": "healthy",
+    "service": "人脸识别API",
+    "version": "1.0.0",
+    "model_loaded": true,
+    "model_name": "buffalo_l"
+  },
+  "msg": "服务健康检查通过"
 }
 ```
 
@@ -198,12 +209,16 @@ docker rm face_recognition_api
 
 ```json
 {
-  "model": "buffalo_l",
-  "detection_size": [640, 640],
-  "similarity_threshold": 0.65,
-  "max_file_size_mb": 10,
-  "supported_formats": [".jpg", ".jpeg", ".png", ".webp"],
-  "thread_pool_workers": 8
+  "code": 0,
+  "data": {
+    "model": "buffalo_l",
+    "detection_size": [640, 640],
+    "similarity_threshold": 0.65,
+    "max_file_size_mb": 10,
+    "supported_formats": [".jpg", ".jpeg", ".png", ".webp"],
+    "thread_pool_workers": 8
+  },
+  "msg": "获取服务配置信息成功"
 }
 ```
 

@@ -65,8 +65,12 @@ response = requests.post(
 )
 
 result = response.json()
-print(f"是否同一人: {result['is_same_person']}")
-print(f"相似度: {result['similarity']:.2%}")
+if result['code'] == 0:
+    data = result['data']
+    print(f"是否同一人: {data['is_same_person']}")
+    print(f"相似度: {data['similarity']:.2%}")
+else:
+    print(f"错误: {result['msg']}")
 ```
 
 #### JavaScript (Node.js)
@@ -94,21 +98,33 @@ axios.post('http://localhost:8000/compare_faces', {
 
 ### 响应格式
 
+所有接口统一返回以下结构：
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| code | integer | 响应码，HTTP 200时返回0，其他情况使用HTTP状态码 |
+| data | object | 响应数据，具体内容见各接口说明 |
+| msg | string | 响应消息 |
+
 #### 成功响应 (200 OK)
 
 ```json
 {
-  "is_same_person": true,
-  "similarity": 0.8523,
-  "confidence": "高",
-  "face1_detected": true,
-  "face2_detected": true,
-  "message": "两张图片是同一个人（相似度: 85.23%）",
-  "processing_time": 245.67
+  "code": 0,
+  "data": {
+    "is_same_person": true,
+    "similarity": 0.8523,
+    "confidence": "高",
+    "face1_detected": true,
+    "face2_detected": true,
+    "message": "两张图片是同一个人（相似度: 85.23%）",
+    "processing_time": 245.67
+  },
+  "msg": "人脸对比成功"
 }
 ```
 
-#### 响应字段说明
+#### data字段说明
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
@@ -126,7 +142,9 @@ axios.post('http://localhost:8000/compare_faces', {
 
 ```json
 {
-  "detail": "base64解码失败: Invalid base64-encoded string"
+  "code": 400,
+  "data": {},
+  "msg": "base64解码失败: Invalid base64-encoded string"
 }
 ```
 
@@ -134,7 +152,9 @@ axios.post('http://localhost:8000/compare_faces', {
 
 ```json
 {
-  "detail": "不支持的图片格式。支持的格式: .jpg, .jpeg, .png, .webp"
+  "code": 400,
+  "data": {},
+  "msg": "不支持的图片格式，支持的格式: .jpg, .jpeg, .png, .webp"
 }
 ```
 
@@ -142,7 +162,9 @@ axios.post('http://localhost:8000/compare_faces', {
 
 ```json
 {
-  "detail": "图片过大。最大支持 10MB"
+  "code": 400,
+  "data": {},
+  "msg": "图片过大，最大支持 10MB"
 }
 ```
 
@@ -150,7 +172,9 @@ axios.post('http://localhost:8000/compare_faces', {
 
 ```json
 {
-  "detail": "服务器内部错误: [错误详情]"
+  "code": 500,
+  "data": {},
+  "msg": "服务器内部错误: [错误详情]"
 }
 ```
 
@@ -188,16 +212,20 @@ curl http://localhost:8000/info
 
 ```json
 {
-  "model": "buffalo_l",
-  "detection_size": [640, 640],
-  "similarity_threshold": 0.65,
-  "max_file_size_mb": 10,
-  "supported_formats": [".jpg", ".jpeg", ".png", ".webp"],
-  "thread_pool_workers": 8
+  "code": 0,
+  "data": {
+    "model": "buffalo_l",
+    "detection_size": [640, 640],
+    "similarity_threshold": 0.65,
+    "max_file_size_mb": 10,
+    "supported_formats": [".jpg", ".jpeg", ".png", ".webp"],
+    "thread_pool_workers": 8
+  },
+  "msg": "获取服务配置信息成功"
 }
 ```
 
-### 响应字段说明
+### data字段说明
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
@@ -228,15 +256,19 @@ curl http://localhost:8000/health
 
 ```json
 {
-  "status": "healthy",
-  "service": "人脸识别API",
-  "version": "1.0.0",
-  "model_loaded": true,
-  "model_name": "buffalo_l"
+  "code": 0,
+  "data": {
+    "status": "healthy",
+    "service": "人脸识别API",
+    "version": "1.0.0",
+    "model_loaded": true,
+    "model_name": "buffalo_l"
+  },
+  "msg": "服务健康检查通过"
 }
 ```
 
-### 响应字段说明
+### data字段说明
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
@@ -266,17 +298,21 @@ curl http://localhost:8000/
 
 ```json
 {
-  "service": "人脸识别API",
-  "version": "1.0.0",
-  "status": "running",
-  "endpoints": {
-    "比较人脸": "/compare_faces",
-    "服务信息": "/info",
-    "API文档": "/docs",
-    "健康检查": "/health",
-    "监控指标": "/metrics"
+  "code": 0,
+  "data": {
+    "service": "人脸识别API",
+    "version": "1.0.0",
+    "status": "running",
+    "endpoints": {
+      "比较人脸": "/compare_faces",
+      "服务信息": "/info",
+      "API文档": "/docs",
+      "健康检查": "/health",
+      "监控指标": "/metrics"
+    },
+    "documentation": "/docs"
   },
-  "documentation": "/docs"
+  "msg": "服务运行正常"
 }
 ```
 
@@ -316,13 +352,16 @@ Prometheus格式的文本数据，包含：
 
 ---
 
-## 错误码说明
+## 响应码说明
 
-| HTTP状态码 | 说明 |
-|-----------|------|
-| 200 | 请求成功 |
-| 400 | 请求参数错误（如base64格式错误、图片格式不支持、图片过大等） |
-| 500 | 服务器内部错误 |
+| HTTP状态码 | code字段 | 说明 |
+|-----------|----------|------|
+| 200 | 0 | 请求成功 |
+| 200 | 0 | 所有成功请求的code字段均为0 |
+| 400 | 400 | 请求参数错误（如base64格式错误、图片格式不支持、图片过大等） |
+| 500 | 500 | 服务器内部错误 |
+
+**注意**：当HTTP状态码为200时，响应体中的`code`字段为0；当HTTP状态码为其他值时，`code`字段与HTTP状态码保持一致。
 
 ---
 
