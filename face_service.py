@@ -3,7 +3,7 @@
 封装InsightFace的所有操作
 """
 import hashlib
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
 import numpy as np
 import cv2
 import insightface
@@ -194,6 +194,57 @@ class FaceRecognitionService:
             message = f"两张图片不是同一个人（相似度: {similarity:.2%}）"
         
         return is_same_person, similarity, confidence, face1_detected, face2_detected, message
+    
+    def count_faces(
+        self,
+        image_bytes: bytes
+    ) -> Tuple[int, bool, str, List[Dict[str, Any]]]:
+        """
+        检测图片中的人脸数量
+        
+        Args:
+            image_bytes: 图片的字节数据
+            
+        Returns:
+            (人脸数量, 是否成功, 消息, 人脸详细信息列表)
+            人脸详细信息包含: [{"bbox": [x1, y1, x2, y2], "det_score": score}, ...]
+        """
+        if not self._initialized:
+            raise RuntimeError("人脸识别服务未初始化")
+        
+        # 读取图片
+        image = self.read_image_from_bytes(image_bytes)
+        
+        if image is None:
+            return 0, False, "无法读取图片文件", []
+        
+        try:
+            # 检测所有人脸
+            faces = self.face_analyzer.get(image)
+            
+            face_count = len(faces)
+            
+            # 构建人脸详细信息（包含边界框和检测置信度）
+            face_details = []
+            for face in faces:
+                face_details.append({
+                    "bbox": face.bbox.tolist() if hasattr(face.bbox, 'tolist') else list(face.bbox),
+                    "det_score": float(face.det_score) if hasattr(face, 'det_score') else 0.0
+                })
+            
+            if face_count == 0:
+                message = "未检测到人脸"
+            elif face_count == 1:
+                message = "检测到1张人脸"
+            else:
+                message = f"检测到{face_count}张人脸"
+            
+            return face_count, True, message, face_details
+            
+        except Exception as e:
+            error_msg = f"人脸检测失败: {str(e)}"
+            print(error_msg)
+            return 0, False, error_msg, []
     
     @staticmethod
     def calculate_image_hash(image_bytes: bytes) -> str:

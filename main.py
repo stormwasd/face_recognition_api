@@ -6,7 +6,7 @@ import asyncio
 import time
 import base64
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Generic, TypeVar, Any
+from typing import Optional, Generic, TypeVar, Any, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -136,6 +136,7 @@ class SimpleMetric:
 request_count = SimpleMetric('face_recognition_requests_total')
 request_duration = SimpleMetric('face_recognition_request_duration_seconds')
 comparison_result_counter = SimpleMetric('face_comparison_results_total')
+face_count_counter = SimpleMetric('face_count_results_total')
 
 # 统一响应模型
 T = TypeVar('T')
@@ -161,6 +162,26 @@ class ComparisonResult(BaseModel):
     face1_detected: bool = Field(..., description="图片1是否检测到人脸")
     face2_detected: bool = Field(..., description="图片2是否检测到人脸")
     message: str = Field(..., description="结果说明")
+    processing_time: Optional[float] = Field(None, description="处理时间（毫秒）")
+
+
+class CountFacesRequest(BaseModel):
+    """人脸计数请求模型"""
+    image: str = Field(..., description="图片的base64编码字符串（支持带或不带data URI前缀）")
+
+
+class FaceInfo(BaseModel):
+    """单个人脸信息模型"""
+    bbox: List[float] = Field(..., description="人脸边界框 [x1, y1, x2, y2]")
+    det_score: float = Field(..., description="检测置信度分数（0-1之间）")
+
+
+class FaceCountResult(BaseModel):
+    """人脸计数结果模型"""
+    face_count: int = Field(..., description="检测到的人脸数量")
+    faces_detected: bool = Field(..., description="是否检测到人脸")
+    message: str = Field(..., description="结果说明")
+    face_details: List[FaceInfo] = Field(default_factory=list, description="人脸详细信息列表（包含边界框和置信度）")
     processing_time: Optional[float] = Field(None, description="处理时间（毫秒）")
 
 
@@ -288,6 +309,46 @@ async def process_face_comparison_async(
     )
 
 
+async def process_face_count_async(
+    image_bytes: bytes
+) -> FaceCountResult:
+    """
+    异步处理人脸计数
+    
+    Args:
+        image_bytes: 图片字节数据
+        
+    Returns:
+        人脸计数结果
+    """
+    start_time = time.time()
+    
+    # 在线程池中执行CPU密集型任务
+    loop = asyncio.get_event_loop()
+    face_count, success, message, face_details = await loop.run_in_executor(
+        executor,
+        face_service.count_faces,
+        image_bytes
+    )
+    
+    # 计算处理时间
+    processing_time = (time.time() - start_time) * 1000  # 毫秒
+    
+    # 构建人脸信息列表
+    face_info_list = [
+        FaceInfo(bbox=detail["bbox"], det_score=round(detail["det_score"], 4))
+        for detail in face_details
+    ]
+    
+    return FaceCountResult(
+        face_count=face_count,
+        faces_detected=face_count > 0,
+        message=message,
+        face_details=face_info_list,
+        processing_time=round(processing_time, 2)
+    )
+
+
 @app.post("/compare_faces", response_model=ApiResponse[ComparisonResult], tags=["人脸识别"])
 async def compare_faces(request: CompareFacesRequest):
     """
@@ -352,6 +413,70 @@ async def compare_faces(request: CompareFacesRequest):
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
 
+@app.post("/count_faces", response_model=ApiResponse[FaceCountResult], tags=["人脸识别"])
+async def count_faces(request: CountFacesRequest):
+    """
+    检测图片中的人脸数量
+    
+    **请求参数**:
+    - `image`: 图片的base64编码字符串（支持带或不带data URI前缀）
+    
+    **支持的图片格式**: JPG, JPEG, PNG, WEBP
+    
+    **文件大小限制**: 最大10MB
+    
+    **返回信息**:
+    - `code`: 响应码，成功时为0
+    - `data`: 包含人脸计数结果数据
+      - `face_count`: 检测到的人脸数量
+      - `faces_detected`: 是否检测到人脸
+      - `message`: 详细说明
+      - `face_details`: 人脸详细信息列表，每个包含：
+        - `bbox`: 人脸边界框坐标 [x1, y1, x2, y2]
+        - `det_score`: 检测置信度分数（0-1之间，越高越可靠）
+      - `processing_time`: 处理时间（毫秒）
+    - `msg`: 响应消息
+    
+    **示例**:
+    ```bash
+    curl -X POST "http://localhost:8000/count_faces" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+      }'
+    ```
+    
+    **注意**: 本接口使用高精度InsightFace模型，能够准确检测图片中的多张人脸。
+    """
+    try:
+        # 记录请求
+        request_count.labels(endpoint='count_faces', status='started').inc()
+        
+        with request_duration.labels(endpoint='count_faces').time():
+            # 验证并解码base64图片
+            image_bytes = validate_base64_image(request.image)
+            
+            # 处理人脸计数
+            result = await process_face_count_async(image_bytes)
+            
+            # 记录成功和计数结果
+            request_count.labels(endpoint='count_faces', status='success').inc()
+            face_count_counter.inc()
+            
+            return ApiResponse(
+                code=0,
+                data=result,
+                msg="人脸计数成功"
+            )
+    
+    except HTTPException:
+        request_count.labels(endpoint='count_faces', status='error').inc()
+        raise
+    except Exception as e:
+        request_count.labels(endpoint='count_faces', status='error').inc()
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
 @app.get("/", response_model=ApiResponse[dict], tags=["系统"])
 async def root():
     """API根路径 - 服务信息"""
@@ -363,6 +488,7 @@ async def root():
             "status": "running",
             "endpoints": {
                 "比较人脸": "/compare_faces",
+                "人脸计数": "/count_faces",
                 "服务信息": "/info",
                 "API文档": "/docs",
                 "健康检查": "/health",
@@ -401,14 +527,20 @@ async def metrics():
 # HELP face_recognition_requests_total Total number of face recognition requests
 # TYPE face_recognition_requests_total counter
 face_recognition_requests_total{{endpoint="compare_faces",status="success"}} {request_count.value}
+face_recognition_requests_total{{endpoint="count_faces",status="success"}} {request_count.value}
 
 # HELP face_recognition_request_duration_seconds Request duration in seconds  
 # TYPE face_recognition_request_duration_seconds histogram
 face_recognition_request_duration_seconds_count {{endpoint="compare_faces"}} {request_duration.value}
+face_recognition_request_duration_seconds_count {{endpoint="count_faces"}} {request_duration.value}
 
 # HELP face_comparison_results_total Total number of face comparison results
 # TYPE face_comparison_results_total counter
 face_comparison_results_total{{result="same_person"}} {comparison_result_counter.value}
+
+# HELP face_count_results_total Total number of face count requests
+# TYPE face_count_results_total counter
+face_count_results_total {face_count_counter.value}
 """
     
     return Response(content=default_metrics + custom_metrics, media_type="text/plain")
